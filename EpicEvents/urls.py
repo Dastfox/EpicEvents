@@ -2,7 +2,7 @@ from django.urls import include, path
 from django.contrib import admin
 from rest_framework import routers
 from CRM.views import UserWithRoleViewSet, ClientViewSet, EventViewSet, ContractViewSet,UserViewSet
-from CRM.views import signup_view, login_view, user_view, CustomTokenRefreshView, CustomTokenObtainPairView, create_groups_view
+from CRM.views import signup_view, login_view, CustomTokenObtainPairView, create_groups_view,custom_signup_view
 
 router = routers.DefaultRouter()
 router.register(r"users", UserViewSet, basename="users")
@@ -16,8 +16,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("signup/", signup_view, name="signup"),
     path("login/", login_view, name="login"),
-    path('api-auth/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     path('api-auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),  
-    path("me/", user_view),
+    path("api-auth/signup/", custom_signup_view, name="signup"),
     path('make_groups/', create_groups_view, name='make_groups')
 ]

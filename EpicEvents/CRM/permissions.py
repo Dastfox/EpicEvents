@@ -5,67 +5,61 @@ from .models import UserWithRole, Client, Contract, Event
 
 class UserWithRolePermissions(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        if request.user.role == UserWithRole.Role.MANAGEMENT:
+        user_roles = UserWithRole.objects.filter(user=request.user)
+        role_numbers = [user_role.role for user_role in user_roles]
+
+        if UserWithRole.Role.MANAGEMENT in role_numbers:
             return True
 
-        if request.user.role in (UserWithRole.Role.SALES, UserWithRole.Role.SUPPORT):
+        if UserWithRole.Role.SALES in role_numbers or UserWithRole.Role.SUPPORT in role_numbers:
             return request.user == obj.user
-        else:
-            raise PermissionDenied("You do not have permission.")
+
+        raise PermissionDenied("You do not have permission.")
 
 
 class ClientPermissions(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        if request.user.role == UserWithRole.Role.MANAGEMENT:
-            print("management")
+        user_roles = UserWithRole.objects.filter(user=request.user)
+        role_numbers = [user_role.role for user_role in user_roles]
+
+        if UserWithRole.Role.MANAGEMENT in role_numbers:
             return True
 
-        if request.user.role == UserWithRole.Role.SALES and view.action in (
-            "create",
-            "retrieve",
-            "update",
-        ):
+        if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
             return request.user == obj.associated_team_member.user
-        elif (
-            request.user.role == UserWithRole.Role.SUPPORT and view.action == "retrieve"
-        ):
-            return Event.objects.filter(
-                associated_team_member__user=request.user, client=obj
-            ).exists()
-        else:
-            raise PermissionDenied("You do not have permission.")
+
+        if UserWithRole.Role.SUPPORT in role_numbers and view.action == "retrieve":
+            return Event.objects.filter(associated_team_member__user=request.user, client=obj).exists()
+
+        raise PermissionDenied("You do not have permission.")
 
 
 class ContractPermissions(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        if request.user.role == UserWithRole.Role.MANAGEMENT:
+        user_roles = UserWithRole.objects.filter(user=request.user)
+        role_numbers = [user_role.role for user_role in user_roles]
+
+        if UserWithRole.Role.MANAGEMENT in role_numbers:
             return True
 
-        if request.user.role == UserWithRole.Role.SALES and view.action in (
-            "create",
-            "retrieve",
-            "update",
-        ):
+        if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
             return request.user == obj.associated_team_member.user
-        else:
-            raise PermissionDenied("You do not have permission.")
+
+        raise PermissionDenied("You do not have permission.")
 
 
 class EventPermissions(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        if request.user.role == UserWithRole.Role.MANAGEMENT:
+        user_roles = UserWithRole.objects.filter(user=request.user)
+        role_numbers = [user_role.role for user_role in user_roles]
+
+        if UserWithRole.Role.MANAGEMENT in role_numbers:
             return True
 
-        if request.user.role == UserWithRole.Role.SALES and view.action in (
-            "create",
-            "retrieve",
-            "update",
-        ):
+        if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
             return request.user == obj.associated_team_member.user
-        elif request.user.role == UserWithRole.Role.SUPPORT and view.action in (
-            "retrieve",
-            "update",
-        ):
+
+        if UserWithRole.Role.SUPPORT in role_numbers and view.action in ("retrieve", "update"):
             return request.user == obj.associated_team_member.user
-        else:
-            raise PermissionDenied("You do not have permission.")
+
+        raise PermissionDenied("You do not have permission.")

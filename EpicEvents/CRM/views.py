@@ -1,4 +1,5 @@
 import json
+from django import forms
 from django.contrib.auth.models import Group
 from django.dispatch import receiver
 from django.shortcuts import redirect, render
@@ -13,7 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
-
+from django.db.models import Q
 from .models import Contract, Client, UserWithRole, Event
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.db.models.signals import m2m_changed
@@ -25,8 +26,28 @@ from .serializers import (
     UserWithRoleSerializer,
     EventSerializer,
 )
+from rest_framework.decorators import api_view, permission_classes
 
 from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework.permissions import AllowAny
+
+class CustomUserCreationForm(UserCreationForm):
+    first_name = forms.CharField(max_length=30)
+    last_name = forms.CharField(max_length=30)
+    email = forms.EmailField(max_length=254)
+
+    class Meta:
+        model = User
+        fields = ("username", "first_name", "last_name", "email", "password1", "password2", )
+
+    def save(self, commit=True):
+        user = super(CustomUserCreationForm, self).save(commit=False)
+        user.first_name = self.cleaned_data['first_name']
+        user.last_name = self.cleaned_data['last_name']
+        user.email = self.cleaned_data['email']
+        if commit:
+            user.save()
+        return user
 
 @receiver(m2m_changed, sender=User.groups.through)
 def user_groups_changed(sender, instance, action, *args, **kwargs):
@@ -71,15 +92,37 @@ def create_groups_view(request):
 
     return JsonResponse({"status": "success", "message": "Groups created and users assigned successfully."})
 
-class CustomTokenRefreshView(TokenRefreshView):
-    """
-    View to return a new access token given a valid refresh token
-    """
-    @csrf_exempt
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return JsonResponse(serializer.validated_data, status=200)
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def custom_signup_view(request):
+    if request.method == 'POST':
+        form = CustomUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            refresh = RefreshToken.for_user(user)
+
+            response_data = {
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                },
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+            }
+            return JsonResponse(response_data, status=200)
+
+        else:
+            # If the form is invalid, return the errors as a JSON response
+            return JsonResponse(form.errors, status=400)
+
+    else:
+        return JsonResponse({"detail": "Invalid request method."}, status=405)
+        
+        
     
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
@@ -122,16 +165,16 @@ def login_view(request):
 
 def signup_view(request):
     if request.method == "POST":
-        form = UserCreationForm(request.POST)
+        form = CustomUserCreationForm(request.POST)
         if form.is_valid():
             form.save()
-            # Redirect to the Django admin panel
             return redirect(reverse("admin:index"))
     else:
-        form = UserCreationForm()
+        form = CustomUserCreationForm()
 
     context = {"form": form}
     return render(request, "signup.html", context)
+
 
 class UserViewSet(viewsets.ModelViewSet):
     
@@ -164,13 +207,6 @@ class UserWithRoleViewSet(viewsets.ModelViewSet):
             return UserWithRole.objects.filter(id=self.request.user.id)
 
 
-def user_view(request):
-    if request.method == "GET":
-        user = request.user
-        return JsonResponse({"username": user.username, "role": user.role.role})
-    else:
-        return JsonResponse({"error": "Invalid request method."})
-
 class ClientViewSet(viewsets.ModelViewSet):
     """
     ViewSet for "/clients/" API endpoint
@@ -184,22 +220,24 @@ class ClientViewSet(viewsets.ModelViewSet):
     ordering_fields = ["first_name", "company_name"]
 
     def get_queryset(self):
-        # for different roles, adjust accordingly
-        # also ensure you have role field in your UserWithRole model
+        is_sales, is_support, is_management = get_roles_bool(self.request.user)
 
-        # if it's a sales role
-        if self.request.user.role.role == UserWithRole.Role.SALES:
-            return Client.objects.filter(sales_contact=self.request.user)
+        if is_management:
+            return Client.objects.all()
 
-        # if it's a support role
-        elif self.request.user.role.role == UserWithRole.Role.SUPPORT:
+        if is_sales and is_support:
             return Client.objects.filter(
-                event__sales_contact=self.request.user
+                Q(contract__sales_contact=self.request.user)
+                | Q(event__sales_contact=self.request.user)
             )
 
-        # if it's a management role
-        elif self.request.user.role.role == UserWithRole.Role.MANAGEMENT:
-            return Client.objects.all()
+        if is_sales:
+            return Client.objects.filter(contract__sales_contact=self.request.user)
+
+        if is_support:
+            return Client.objects.filter(event__sales_contact=self.request.user)
+
+        return Client.objects.none()
 
 
 class ContractViewSet(viewsets.ModelViewSet):
@@ -221,27 +259,32 @@ class ContractViewSet(viewsets.ModelViewSet):
         "client__first_name",
         "client__last_name",
         "client__email",
-        "client__phone_number",
+        "client__phone",
+        "client__company_name",
+        "client__mobile",
         "price",
     ]
 
     def get_queryset(self):
-        # adjust this for your roles
-        # ensure you have role field in your UserWithRole model
+        is_sales, is_support, is_management = get_roles_bool(self.request.user)
 
-        # if it's a sales role
-        if self.request.user.role.role == UserWithRole.Role.SALES:
-            return Contract.objects.filter(associated_team_member=self.request.user)
+        if is_management:
+            return Contract.objects.all()
 
-        # if it's a support role
-        elif self.request.user.role.role == UserWithRole.Role.SUPPORT:
+        if is_sales and is_support:
             return Contract.objects.filter(
-                event__associated_team_member=self.request.user
+                Q(associated_team_member=self.request.user)
+                | Q(event__sales_contact=self.request.user)
             )
 
-        # if it's a management role
-        elif self.request.user.role.role == UserWithRole.Role.MANAGEMENT:
-            return Contract.objects.all()
+        if is_sales:
+            return Contract.objects.filter(associated_team_member=self.request.user)
+
+        if is_support:
+            return Contract.objects.filter(event__sales_contact=self.request.user)
+
+        return Contract.objects.none()
+
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -264,21 +307,45 @@ class EventViewSet(viewsets.ModelViewSet):
         "client__last_name",
         "client__email",
         "event_date",
-        "finished",
+        "status",
     ]
 
     def get_queryset(self):
         # adjust this for your roles
-        # ensure you have role field in your UserWithRole model
-
-        # if it's a sales role
-        if self.request.user.role.role == UserWithRole.Role.SALES:
-            return Event.objects.filter(associated_team_member=self.request.user)
-
-        # if it's a support role
-        elif self.request.user.role.role == UserWithRole.Role.SUPPORT:
-            return Event.objects.filter(associated_team_member=self.request.user)
-
-        # if it's a management role
-        elif self.request.user.role.role == UserWithRole.Role.MANAGEMENT:
+        is_sales, is_support, is_management = get_roles_bool(self.request.user)
+                
+        print(is_sales, is_support, is_management)
+        if is_management:
             return Event.objects.all()
+
+        elif is_sales and is_support:
+            return Event.objects.filter(
+                Q(contract__sales_contact=self.request.user)
+                | Q(sales_contact=self.request.user)
+            )
+        
+        elif is_sales:
+            return Event.objects.filter(contract__sales_contact=self.request.user)
+
+        elif is_support:
+            return Event.objects.filter(sales_contact=self.request.user)
+
+        return Event.objects.none()  # Return an empty queryset if no role matches the condition
+
+
+
+def get_roles_bool (user):
+        user_roles = user.role.all()  # Retrieve all UserWithRole instances
+        is_sales = False
+        is_support = False
+        is_management = False
+        for role in user_roles:
+            if role.role == UserWithRole.Role.SALES:
+                is_sales = True
+            elif role.role == UserWithRole.Role.SUPPORT:
+                is_support = True
+            elif role.role == UserWithRole.Role.MANAGEMENT:
+                is_management = True
+        return is_sales, is_support, is_management
+    
+    

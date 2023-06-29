@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -12,7 +12,7 @@ class UserWithRole(models.Model):
         MANAGEMENT = 2, "Management"
         SUPPORT = 3, "Support"
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="role")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="role")
     role = models.IntegerField(choices=Role.choices)
 
 
@@ -36,26 +36,26 @@ class Client(models.Model):
 
 
 class Event(models.Model):
-    finished = models.BooleanField(default=False)
     client = models.ForeignKey(
         to=Client, on_delete=models.CASCADE, null=True, blank=True
     )
     contract = models.ForeignKey(
         to="Contract",
         on_delete=models.CASCADE,
-        null=True,
-        blank=True,
         related_name="event_contract",
     )
-    sales_contact = models.ForeignKey(
-        to=UserWithRole, on_delete=models.SET_NULL, null=True, blank=True
+    support_contact = models.ForeignKey(
+        to=User, on_delete=models.SET_NULL, null=True, blank=True
     )
-    number_of_guests = models.IntegerField()
+    attendees = models.IntegerField(null=True, blank=True)
     event_name = models.CharField(max_length=255)
     event_date = models.DateField()
     event_location = models.CharField(max_length=255)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # set a default valid value for the dates to apply the migration
+    date_created = models.DateTimeField(default=timezone.now, blank=True)
+    date_updated = models.DateTimeField(auto_now=True)
+    notes= models.TextField(null=True, blank=True)
+    status = models.BooleanField(default=False, verbose_name="Event completed?")
     # ...
 
 
@@ -71,16 +71,16 @@ class Contract(models.Model):
         to=Client, on_delete=models.CASCADE, null=True, blank=True
     )
     sales_contact = models.ForeignKey(
-        to=UserWithRole, on_delete=models.SET_NULL, null=True, blank=True
+        to=User, on_delete=models.SET_NULL, null=True, blank=True
     )
     contract_date = models.DateTimeField(auto_now_add=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    signed = models.BooleanField(default=False)
-    payment_due_date = models.DateField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    status = models.BooleanField(default=False, verbose_name="Contract signed?")
+    payment_due = models.DateField(null=True, blank=True)
+    date_created = models.DateTimeField(default=timezone.now, blank=True)
+    date_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.client} - {self.price}€ - signed: {self.signed}"
+        return f"{self.client} - {self.price}€ - signed: {self.status}"
 
     # ...
