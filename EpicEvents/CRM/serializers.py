@@ -50,8 +50,6 @@ class ClientSerializer(serializers.ModelSerializer):
 
 
 class EventSerializer(serializers.ModelSerializer):
-    # client = ClientSerializer(read_only=True)
-    # associated_team_member = UserWithRoleSerializer(read_only=True)
 
     class Meta:
         model = Event
@@ -60,9 +58,6 @@ class EventSerializer(serializers.ModelSerializer):
 
 
 class ContractSerializer(serializers.ModelSerializer):
-    # event = EventSerializer(read_only=True)
-    # client = ClientSerializer(read_only=True)
-    # associated_team_member = UserWithRoleSerializer(read_only=True)
 
     class Meta:
         model = Contract

@@ -12,13 +12,14 @@ class UserWithRolePermissions(permissions.BasePermission):
             return True
 
         if UserWithRole.Role.SALES in role_numbers or UserWithRole.Role.SUPPORT in role_numbers:
-            return request.user == obj.user
+            print(request.user, obj.user)
+            return request.user.id == obj.user.id
 
         raise PermissionDenied("You do not have permission.")
 
 
 class ClientPermissions(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
+    def has_object_permission(self, request, view, obj: Client):
         user_roles = UserWithRole.objects.filter(user=request.user)
         role_numbers = [user_role.role for user_role in user_roles]
 
@@ -26,16 +27,16 @@ class ClientPermissions(permissions.BasePermission):
             return True
 
         if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
-            return request.user == obj.associated_team_member.user
+            return request.user == obj.sales_contact
 
         if UserWithRole.Role.SUPPORT in role_numbers and view.action == "retrieve":
-            return Event.objects.filter(associated_team_member__user=request.user, client=obj).exists()
+            return Event.objects.filter(sales_contact__user=request.user, client=obj).exists()
 
         raise PermissionDenied("You do not have permission.")
 
 
 class ContractPermissions(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
+    def has_object_permission(self, request, view, obj: Contract):
         user_roles = UserWithRole.objects.filter(user=request.user)
         role_numbers = [user_role.role for user_role in user_roles]
 
@@ -43,23 +44,26 @@ class ContractPermissions(permissions.BasePermission):
             return True
 
         if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
-            return request.user == obj.associated_team_member.user
+            return request.user == obj.sales_contact
 
         raise PermissionDenied("You do not have permission.")
 
 
 class EventPermissions(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
+    def has_object_permission(self, request, view, obj: Event):
         user_roles = UserWithRole.objects.filter(user=request.user)
         role_numbers = [user_role.role for user_role in user_roles]
 
         if UserWithRole.Role.MANAGEMENT in role_numbers:
+            print("Management")
             return True
 
         if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
-            return request.user == obj.associated_team_member.user
+            print("Sales")
+            return request.user == obj.support_contact
 
         if UserWithRole.Role.SUPPORT in role_numbers and view.action in ("retrieve", "update"):
-            return request.user == obj.associated_team_member.user
+            print("Support")
+            return request.user == obj.support_contact
 
         raise PermissionDenied("You do not have permission.")
