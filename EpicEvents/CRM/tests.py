@@ -1,106 +1,233 @@
-from django.test import TestCase, Client as TestClient
+from django.test import TestCase
 from django.contrib.auth.models import User
+from rest_framework.test import APIClient
 from rest_framework import status
-from CRM.models import Client, UserWithRole, Contract, Event
-from CRM.views import get_roles_bool
+from .models import Client, Contract, Event
+
+from CRM.models import UserWithRole
+
+DATAPOST_CLIENT = {
+    "first_name": "Test Client",
+    "last_name": "Test",
+    "email": "test@test.com",
+    "phone": "0639168000000",
+    "mobile": "1234567890",
+    "company_name": "Test Company",
+}
+
+DATAPUT_CLIENT = {
+    "first_name": "Test Client PUT",
+    "last_name": "Test",
+    "email": "test@test.com",
+    "phone": "0639168000000",
+    "mobile": "1234567890",
+    "company_name": "Test Company",
+    "sales_contact": "",
+}
+
+DATAPOST_CONTRACT = {
+    "client": None,
+    "sales_contact": None,
+    "price": "100.00",
+    "status": False,
+    "payment_due": "2023-07-02",
+}
+
+DATAPUT_CONTRACT = {
+    "client": None,
+    "sales_contact": None,
+    "price": "101.00",
+    "status": False,
+    "payment_due": "2023-07-02",
+}
+
+DATAPOST_EVENT= {
+    "client": None,
+    "contract": None,
+    "support_contact": None,
+    "attendees": 10,
+    "event_name": "Test Event",
+    "event_date": "2023-07-02",
+    "event_location": "Test Location",
+    "notes": "Test notes",
+    "status": False,
+}
+
+DATAPUT_EVENT = {
+    "client": None,
+    "contract": None,
+    "support_contact": None,
+    "attendees": 20,
+    "event_name": "Test Event PUT",
+    "event_date": "2023-07-03",
+    "event_location": "Test Location PUT",
+    "notes": "Test notes PUT",
+    "status": True,
+}
 
 
-class UserTest(TestCase):
+class PermissionsTest(TestCase):
+    event_id = None
+    client_id = None
+    contract_id = None
+
     def setUp(self):
-        self.user = User.objects.create_user(
-            username='testuser', password='testpassword')
-    
+        self.management_user = User.objects.create_user(
+            username="test_management", password="test_password"
+        )
+        UserWithRole.objects.create(user=self.management_user, role=2)
 
-    def test_user_creation(self):
-        self.assertEqual(User.objects.count(), 1)
+        self.sales_user = User.objects.create_user(
+            username="test_sales", password="test_password"
+        )
+        UserWithRole.objects.create(user=self.sales_user, role=1)
 
+        self.support_user = User.objects.create_user(
+            username="test_support", password="test_password"
+        )
+        UserWithRole.objects.create(user=self.support_user, role=3)
 
-class ClientTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            username='testuser', password='testpassword')
-        self.client = Client.objects.create(first_name="Test Client",
-                                            last_name="Test",
-                                            email="test@test.com",
-                                            mobile="1234567890",
-                                            company_name="Test Company",
-                                            existing_client=True)
+        self.client = APIClient()
 
-    def test_client_creation(self):
-        self.assertEqual(Client.objects.count(), 1)
+    def test_permissions_client(self):
+        self.client.force_authenticate(user=self.sales_user)
+        DATAPOST_CLIENT.update({"sales_contact": self.sales_user.id})
 
+        # Test management user permissions
+        self.client.force_authenticate(user=self.management_user)
 
-class ContractTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            username='testuser', password='testpassword')
-        self.client = Client.objects.create(first_name="Test Client",
-                                            last_name="Test",
-                                            email="test@test.com",
-                                            mobile="1234567890",
-                                            company_name="Test Company",
-                                            existing_client=True)
-        self.contract = Contract.objects.create(client=self.client,
-                                                contract_date="2023-07-01",
-                                                sales_contact=self.user,
-                                                price="1000",
-                                                payment_due="2023-07-31")
+        print(DATAPUT_CLIENT)
+        response = self.client.post("/clients/", data=DATAPOST_CLIENT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_contract_creation(self):
-        self.assertEqual(Contract.objects.count(), 1)
+        self.client_id = response.data.get("id")
 
+        response = self.client.put(f"/clients/{self.client_id}/", data=DATAPUT_CLIENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-class EventTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            username='testuser', password='testpassword')
-        self.client = Client.objects.create(first_name="Test Client",
-                                            last_name="Test",
-                                            email="test@test.com",
-                                            mobile="1234567890",
-                                            company_name="Test Company",)
-        self.contract = Contract.objects.create(client=self.client,
-                                                contract_date="2023-07-01",
-                                                sales_contact=self.user,
-                                                price="1000",
-                                                payment_due="2023-07-31")
-                                                
-        self.event = Event.objects.create(client=self.client,
-                                          contract=self.contract,
-                                          event_date="2023-07-01",
-                                          support_contact=self.user,
-                                          status=True)
+        # Test sales user permissions
+        self.client.force_authenticate(user=self.sales_user)
+        DATAPOST_CLIENT.update({"sales_contact": self.sales_user.id})
 
-    def test_event_creation(self):
-        self.assertEqual(Event.objects.count(), 1)
+        response = self.client.post("/clients/", data=DATAPOST_CLIENT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-class GetRolesBoolTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            username='testuser', password='testpassword')
+        self.client_id = response.data.get("id")
 
-    def test_get_roles_bool(self):
-        is_sales, is_support, is_management = get_roles_bool(self.user)
-        self.assertEqual(is_sales, False)
-        self.assertEqual(is_support, False)
-        self.assertEqual(is_management, False)
+        response = self.client.put(f"/clients/{self.client_id}/", data=DATAPUT_CLIENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        response = self.client.put(f"/clients/{self.client_id}/", data=DATAPUT_CLIENT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-class LoginViewTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            username='testuser', password='testpassword')
-        self.c = TestClient()  # Use the renamed import
+        # Test support user permissions
+        self.client.force_authenticate(user=self.support_user)
+        DATAPOST_CLIENT.update({"sales_contact": self.sales_user.id})
 
-    def test_login_view(self):
-        response = self.c.post('/login/', {'username': 'testuser', 'password': 'testpassword'})
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        DATAPUT_CLIENT.update({"sales_contact": ""})
+        response = self.client.post("/clients/", data=DATAPOST_CLIENT)
 
-class SignupViewTest(TestCase):
-    def setUp(self):
-        self.c = TestClient()  # Use the renamed import
+        response = self.client.put(f"/clients/{self.client_id}/", data=DATAPUT_CLIENT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_signup_view(self):
-        response = self.c.post('/signup/', {'username': 'testuser', 'password1': 'testpassword', 'password2': 'testpassword',
-                                            'first_name': 'test', 'last_name': 'test', 'email': 'test@test.com', 'role': 'SALES'})
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+    def test_permissions_contract(self):
+        self.client.force_authenticate(user=self.sales_user)
+        DATAPOST_CLIENT.update({"sales_contact": self.sales_user.id})
+        # Test management user permissions
+        self.client.force_authenticate(user=self.management_user)
+        response = self.client.post("/clients/", data=DATAPOST_CLIENT)
+
+        client_id = response.data.get("id")
+
+        DATAPOST_CONTRACT.update(
+            {"client": client_id, "sales_contact": self.sales_user.id}
+        )
+        DATAPUT_CONTRACT.update(
+            {"client": client_id, "sales_contact": self.sales_user.id}
+        )
+
+        response = self.client.post("/contracts/", data=DATAPOST_CONTRACT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        contract_id = response.data.get("id")
+
+        response = self.client.put(f"/contracts/{contract_id}/", data=DATAPUT_CONTRACT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Test sales user permissions
+        self.client.force_authenticate(user=self.sales_user)
+
+        response = self.client.post("/contracts/", data=DATAPOST_CONTRACT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.put(f"/contracts/{contract_id}/", data=DATAPUT_CONTRACT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Test support user permissions
+        self.client.force_authenticate(user=self.support_user)
+
+        response = self.client.post("/contracts/", data=DATAPOST_CONTRACT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.put(f"/contracts/{contract_id}/", data=DATAPUT_CONTRACT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_event_permissions(self):
+        self.client.force_authenticate(user=self.sales_user)
+        DATAPOST_CLIENT.update({"sales_contact": self.sales_user.id})
+        # Test management user permissions
+        self.client.force_authenticate(user=self.management_user)
+        response = self.client.post("/clients/", data=DATAPOST_CLIENT)
+        client_id = response.data.get("id")
+        DATAPOST_CONTRACT.update(
+            {"client": client_id, "sales_contact": self.sales_user.id}
+        )
+        contract_id = response.data.get("id")
+        response = self.client.post("/contracts/", data=DATAPOST_CONTRACT)
+        self.client.force_authenticate(user=self.support_user)
+        DATAPOST_EVENT.update(
+            {
+                "contract": contract_id,
+                "client": client_id,
+                "support_contact": self.support_user.id,
+            }
+        )
+        DATAPUT_EVENT.update(
+            {
+                "contract": contract_id,
+                "client": client_id,
+                "support_contact": self.support_user.id,
+            }
+        )
+
+        self.client.force_authenticate(user=self.management_user)
+
+        response = self.client.post("/events/", data=DATAPOST_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event_id = response.data.get("id")
+
+        print(DATAPUT_EVENT)
+        response = self.client.put(f"/events/{event_id}/", data=DATAPUT_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=self.sales_user)
+
+        response = self.client.post("/events/", data=DATAPOST_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        DATAPUT_EVENT.update({"support_contact": ""})
+
+        response = self.client.put(f"/events/{event_id}/", data=DATAPUT_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        
+        response = self.client.put(f"/events/{event_id}/", data=DATAPUT_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.support_user)
+
+        response = self.client.post("/events/", data=DATAPOST_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.put(f"/events/{event_id}/", data=DATAPUT_EVENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -16,6 +16,7 @@ from CRM.views import (
     custom_signup_view,
 )
 
+
 router = routers.DefaultRouter()
 router.register(r"users", UserViewSet, basename="users")
 router.register(r"users_with_roles", UserWithRoleViewSet, basename="users_with_roles")
@@ -34,3 +35,4 @@ urlpatterns = [
     path("api-auth/signup/", custom_signup_view, name="signup"),
     path("make_groups/", create_groups_view, name="make_groups"),
 ]
+

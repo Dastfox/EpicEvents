@@ -1,5 +1,6 @@
 from rest_framework import permissions
 from rest_framework.exceptions import PermissionDenied
+import sentry_sdk
 from .models import UserWithRole, Client, Contract, Event
 
 
@@ -15,6 +16,8 @@ class UserWithRolePermissions(permissions.BasePermission):
             print(request.user, obj.user)
             return request.user.id == obj.user.id
 
+
+        sentry_sdk.capture_message("Permission denied \nRoles: " +  "\nObject: "+ str(obj))
         raise PermissionDenied("You do not have permission.")
 
 
@@ -31,9 +34,12 @@ class ClientPermissions(permissions.BasePermission):
 
         if UserWithRole.Role.SUPPORT in role_numbers and view.action == "retrieve":
             return Event.objects.filter(sales_contact__user=request.user, client=obj).exists()
-
-        raise PermissionDenied("You do not have permission.")
-
+        
+        try: 
+            raise PermissionDenied("You do not have permission.")
+        except PermissionDenied as e:
+            sentry_sdk.capture_exception(e)
+            sentry_sdk.capture_message("Permission denied \nRoles: " + "\nObject: "+ str(obj))
 
 class ContractPermissions(permissions.BasePermission):
     def has_object_permission(self, request, view, obj: Contract):
@@ -43,9 +49,10 @@ class ContractPermissions(permissions.BasePermission):
         if UserWithRole.Role.MANAGEMENT in role_numbers:
             return True
 
-        if UserWithRole.Role.SALES in role_numbers and view.action in ("create", "retrieve", "update"):
+        if UserWithRole.Role.SALES in role_numbers and view.action in ("retrieve", "update"):
             return request.user == obj.sales_contact
 
+        sentry_sdk.capture_message("Permission denied \nRoles: " + "\nObject: "+ str(obj))
         raise PermissionDenied("You do not have permission.")
 
 
@@ -66,4 +73,5 @@ class EventPermissions(permissions.BasePermission):
             print("Support")
             return request.user == obj.support_contact
 
+        sentry_sdk.capture_message("Permission denied \nRoles: " + "\nObject: "+ str(obj))
         raise PermissionDenied("You do not have permission.")

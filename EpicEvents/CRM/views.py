@@ -1,4 +1,5 @@
 from django import forms
+from django_filters.rest_framework import DateFilter, FilterSet
 from django.contrib.auth.models import Group
 from django.dispatch import receiver
 from django.shortcuts import redirect, render
@@ -12,6 +13,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from rest_framework_simplejwt.tokens import RefreshToken
+import sentry_sdk
 from .models import User
 from django.db.models import Q
 from .models import Contract, Client, UserWithRole, Event
@@ -107,6 +109,7 @@ def user_groups_changed(sender, instance, action, *args, **kwargs):
                 if user_with_role.exists():
                     user_with_role.delete()
             except StopIteration:
+                sentry_sdk.capture_message(f"No role found for group: {group_name}")
                 print(f"No role found for group: {group_name}")
 
 
@@ -246,6 +249,18 @@ class UserWithRoleViewSet(viewsets.ModelViewSet):
             return UserWithRole.objects.filter(user_id=self.request.user.id)
 
 
+class ClientFilter(FilterSet):
+    class Meta:
+        model = Client
+        fields = [
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "company_name",
+            "mobile",
+        ]
+
 class ClientViewSet(viewsets.ModelViewSet):
     """
     ViewSet for "/clients/" API endpoint
@@ -255,38 +270,63 @@ class ClientViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ClientPermissions]
     filter_backends = [SearchFilter, DjangoFilterBackend]
     search_fields = ["first_name", "last_name", "company_name"]
-    filterset_fields = ["existing_client", "first_name", "company_name"]
     ordering_fields = ["first_name", "company_name"]
+    filterset_class = ClientFilter
     
     def create(self, request, *args, **kwargs):
         is_sales, is_support, is_management = get_roles_bool(self.request.user)
         # Check if the user has the SUPPORT role
-        if not is_sales and not is_management:
-            raise PermissionDenied("Creation is not allowed for SUPPORT users.")
+        if is_sales or is_management:
+            return super().create(request, *args, **kwargs)
+        else:
+            return JsonResponse(
+                {"detail": "You do not have permission to perform this action."},
+                status=403,
+            )
+                
+            
+        
+    def update(self, request, *args, **kwargs):
+        is_sales, is_support, is_management = get_roles_bool(self.request.user)
+        
+        if is_management:
+            return super().update(request, *args, **kwargs)
+        elif is_sales:
+            
+            if self.get_object().sales_contact != self.request.user:
+                JsonResponse(
+                    {"detail": "You do not have permission to perform this action."},
+                status=403,
+                )
+            else:
+                return super().update(request, *args, **kwargs)
+        
+        return super().update(request, *args, **kwargs)
 
-        return super().create(request, *args, **kwargs)
+        
 
     def get_queryset(self):
-        is_sales, is_support, is_management = get_roles_bool(self.request.user)
-
-        if is_management:
-            return Client.objects.all()
-
-        if is_sales and is_support:
-            return Client.objects.filter(
-                Q(contract__sales_contact=self.request.user)
-                | Q(event__sales_contact=self.request.user)
-            )
-
-        if is_sales:
-            return Client.objects.filter(contract__sales_contact=self.request.user)
-
-        if is_support:
-            return Client.objects.filter(event__sales_contact=self.request.user)
-
-        return Client.objects.none()
+        return Client.objects.all()
 
 
+
+
+class ContractFilter(FilterSet):
+    payment_due__gt = DateFilter(field_name='payment_due', lookup_expr='gt')
+
+    class Meta:
+        model = Contract
+        fields = [
+            "client__first_name",
+            "client__last_name",
+            "client__email",
+            "client__phone",
+            "client__company_name",
+            "client__mobile",
+            "price",
+            "payment_due",
+            "status"
+        ]
 class ContractViewSet(viewsets.ModelViewSet):
     """
     ViewSet for "/contracts/" API endpoint
@@ -301,37 +341,63 @@ class ContractViewSet(viewsets.ModelViewSet):
         "client__email",
         "contract_date",
         "price",
+        "payment_due",  
+        'status'
     ]
-    filterset_fields = [
-        "client__first_name",
-        "client__last_name",
-        "client__email",
-        "client__phone",
-        "client__company_name",
-        "client__mobile",
-        "price",
-    ]
+    filterset_class = ContractFilter
 
     def get_queryset(self):
+        return Contract.objects.all()
+    
+    def create(self, request, *args, **kwargs):
         is_sales, is_support, is_management = get_roles_bool(self.request.user)
-
-        if is_management:
-            return Contract.objects.all()
-
-        if is_sales and is_support:
-            return Contract.objects.filter(
-                Q(sales_contact=self.request.user)
-                | Q(event__support_contact=self.request.user)
+        # Check if the user has the SUPPORT role
+        if is_sales or is_management:
+            return super().create(request, *args, **kwargs)
+        else:
+            return JsonResponse(
+                {"detail": "You do not have permission to perform this action."},
+                status=403,
             )
+                
+            
+        
+    def update(self, request, *args, **kwargs):
+        is_sales, is_support, is_management = get_roles_bool(self.request.user)
+        
+        if is_management:
+            return super().update(request, *args, **kwargs)
+        else:
+            if self.get_object().sales_contact != self.request.user or not is_sales:
+                JsonResponse(
+                    {"detail": "You do not have permission to perform this action."},
+                status=403,
+                )
+            else:
+                return super().update(request, *args, **kwargs)
 
-        if is_sales:
-            return Contract.objects.filter(sales_contact=self.request.user)
+        
 
-        if is_support:
-            return Contract.objects.filter(event__support_contact=self.request.user)
 
-        return Contract.objects.none()
 
+        
+    
+class EventFilter(FilterSet):
+    event_date__gt = DateFilter(field_name='event_date', lookup_expr='gt')
+
+    class Meta:
+        model = Event
+        fields = [
+            "client__first_name",
+            "client__last_name",
+            "client__email",
+            "event_date",
+            "status",
+            'support_contact'
+        ]
+
+    def get_queryset(self):
+        return Event.objects.all()
 
 class EventViewSet(viewsets.ModelViewSet):
     """
@@ -346,35 +412,33 @@ class EventViewSet(viewsets.ModelViewSet):
         "client__last_name",
         "client__email",
         "event_date",
-        "finished",
-    ]
-    filterset_fields = [
-        "client__first_name",
-        "client__last_name",
-        "client__email",
-        "event_date",
         "status",
+        'support_contact'
     ]
+    filterset_class = EventFilter
 
-    def get_queryset(self):
+
+    def create(self, request, *args, **kwargs):
         is_sales, is_support, is_management = get_roles_bool(self.request.user)
-
-        print(is_sales, is_support, is_management)
-        if is_management:
-            return Event.objects.all()
-
-        elif is_sales and is_support:
-            return Event.objects.filter(
-                Q(contract__sales_contact=self.request.user)
-                | Q(sales_contact=self.request.user)
+        # Check if the user has the SUPPORT role
+        if not is_support and not is_management:
+            return JsonResponse(
+                {"detail": "You do not have permission to perform this action."},
+                status=403,
             )
 
-        elif is_sales:
-            return Event.objects.filter(contract__sales_contact=self.request.user)
+        return super().create(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        is_sales, is_support, is_management = get_roles_bool(self.request.user)
+        # Check if the user has the SUPPORT role
+        if not is_support and not is_management:
+            return JsonResponse(
+                {"detail": "You do not have permission to perform this action."},
+                status=403,
+            )
 
-        elif is_support:
-            return Event.objects.filter(sales_contact=self.request.user)
-
-        return (
-            Event.objects.none()
-        ) 
+        return super().update(request, *args, **kwargs)
+    
+    def get_queryset(self):
+        return Event.objects.all()
