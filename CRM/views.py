@@ -76,13 +76,11 @@ class CustomUserCreationForm(UserCreationForm):
 
 @receiver(m2m_changed, sender=User.groups.through)
 def user_groups_changed(sender, instance, action, *args, **kwargs):
-    print(UserWithRole.Role.choices)
     if action == "post_add":
         # Handle addition to a group
         for group in instance.groups.all():
             group_name = group.name
             try:
-                print(group_name)
                 role_value = next(
                     val for val, name in UserWithRole.Role.choices if name == group_name
                 )
@@ -245,7 +243,6 @@ class UserWithRoleViewSet(viewsets.ModelViewSet):
             return UserWithRole.objects.all()
         # else return only the user itself
         else:
-            print(self.request.user.id)
             return UserWithRole.objects.filter(user_id=self.request.user.id)
 
 
